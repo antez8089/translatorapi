@@ -1,0 +1,34 @@
+# GraphQL schema example
+#
+# https://gqlgen.com/getting-started/
+
+type Word {
+  id: ID!
+  polishWord: String!
+  translations: [Translation!]!
+}
+
+type Translation {
+  id: ID!
+  wordID: ID!
+  englishWord: String!
+  examples: [Example!]!
+}
+
+type Example {
+  id: ID!
+  translationID: ID!
+  sentence: String!
+}
+
+type Query {
+  words: [Word!]!
+  translations(wordId: ID!): [Translation!]!
+  examples(translationId: ID!): [Example!]!
+}
+
+type Mutation {
+  createWord(polishWord: String!): Word!
+  createTranslation(wordId: ID!, englishWord: String!): Translation!
+  createExample(translationId: ID!, sentence: String!): Example!
+}

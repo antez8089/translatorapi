@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:latest
+    container_name: translation-db
+    restart: always
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: translations_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./translatorapi/init.sql:/docker-entrypoint-initdb.d/init.sql 
+
+  init-db:
+    image: postgres:latest
+    container_name: init-db
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: translations_db
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    depends_on:
+      - db
+    command: /bin/bash -c "sleep 2"  # Delay to allow db initialization
+    restart: "no"  # Ensure it does not restart
+
+volumes:
+  db_data:
