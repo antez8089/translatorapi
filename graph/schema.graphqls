@@ -27,6 +27,8 @@ type Mutation {
   createTranslation(polishWord: String!, englishWord: String!): Translation!
   createExample(englishWord: String!, sentence: String!): Example!
   createWordWithTranslation(polishWord: String!, englishWord: String!): Word!
+  deleteWord(polishWord: String!): Boolean!
+  deleteTranslation(polishWord: String!, englishWord: String!) : Boolean!
 }
 
 type Query {

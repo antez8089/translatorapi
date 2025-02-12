@@ -6,6 +6,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"translatorapi/database"
 	generated1 "translatorapi/graph/generated"
@@ -70,7 +71,49 @@ func (r *mutationResolver) CreateExample(ctx context.Context, englishWord string
 
 // CreateWordWithTranslation is the resolver for the createWordWithTranslation field.
 func (r *mutationResolver) CreateWordWithTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Word, error) {
-	panic(fmt.Errorf("not implemented: CreateWordWithTranslation - createWordWithTranslation"))
+	word := models.Word{
+		PolishWord: polishWord,
+	}
+	if err := database.DB.Create(&word).Error; err != nil {
+		return nil, err
+	}
+	if word.ID == 0 {
+		return nil, errors.New("failed to retrieve Word ID after creation")
+	}
+	translation := models.Translation{
+		EnglishWord: englishWord,
+		WordID:      word.ID,
+	}
+	if err := database.DB.Create(&translation).Error; err != nil {
+		return nil, err
+	}
+	// Preload translations so GraphQL can access them
+	var completeWord models.Word
+	if err := database.DB.Preload("Translations").First(&completeWord, word.ID).Error; err != nil {
+		return nil, err
+	}
+	return ToGraphQLWord(&completeWord), nil
+}
+
+// DeleteWord is the resolver for the deleteWord field.
+func (r *mutationResolver) DeleteWord(ctx context.Context, polishWord string) (bool, error) {
+	if err := database.DB.Where("polish_word = ?", polishWord).Delete(&models.Word{}).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// DeleteTranslation is the resolver for the deleteTranslation field.
+func (r *mutationResolver) DeleteTranslation(ctx context.Context, polishWord string, englishWord string) (bool, error) {
+	var word models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		return false, err
+	}
+	if err := database.DB.Where("word_id = ? AND english_word = ?", word.ID, englishWord).Delete(models.Translation{}).Error; err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // Words is the resolver for the words field.
