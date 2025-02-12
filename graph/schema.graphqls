@@ -22,16 +22,15 @@ type Example {
   sentence: String!
 }
 
-type Query {
-  words: [Word!]!
-  translations(wordId: ID!): [Translation!]!
-  examples(translationId: ID!): [Example!]!
-}
-
 type Mutation {
   createWord(polishWord: String!): Word!
-  createTranslation(wordId: ID!, englishWord: String!): Translation!
-  createExample(translationId: ID!, sentence: String!): Example!
+  createTranslation(polishWord: String!, englishWord: String!): Translation!
+  createExample(englishWord: String!, sentence: String!): Example!
   createWordWithTranslation(polishWord: String!, englishWord: String!): Word!
 }
 
+type Query {
+  words: [Word!]!
+  translations(polishWord: String!): [Translation!]!
+  examples(englishWord: String!): [Example!]!
+}

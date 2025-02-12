@@ -6,16 +6,14 @@ package graph
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strconv"
 	"translatorapi/database"
 	generated1 "translatorapi/graph/generated"
 	"translatorapi/graph/model"
 	"translatorapi/models"
 )
 
-// CreateWord is the resolver for the createWord field.
+// CreateWord creates a new Polish word.
 func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string) (*model.Word, error) {
 	word := models.Word{
 		PolishWord: polishWord,
@@ -28,14 +26,17 @@ func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string) (*
 	return ToGraphQLWord(&word), nil
 }
 
-// CreateTranslation is the resolver for the createTranslation field.
-func (r *mutationResolver) CreateTranslation(ctx context.Context, wordID string, englishWord string) (*model.Translation, error) {
-	id, err := strconv.ParseUint(wordID, 10, 64) // Konwersja z string na uint
-	if err != nil {
-		return nil, err
+// CreateTranslation creates a new translation for a word.
+func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Translation, error) {
+	// Find the word by its PolishWord
+	var word models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		return nil, fmt.Errorf("word not found: %v", err)
 	}
+
+	// Create the translation for the found word
 	translation := models.Translation{
-		WordID:      uint(id),
+		WordID:      word.ID,
 		EnglishWord: englishWord,
 	}
 
@@ -46,14 +47,17 @@ func (r *mutationResolver) CreateTranslation(ctx context.Context, wordID string,
 	return ToGraphQLTranslation(&translation), nil
 }
 
-// CreateExample is the resolver for the createExample field.
-func (r *mutationResolver) CreateExample(ctx context.Context, translationID string, sentence string) (*model.Example, error) {
-	id, err := strconv.ParseUint(translationID, 10, 64) // Konwersja z string na int
-	if err != nil {
-		return nil, err
+// CreateExample creates a new example sentence for a translation.
+func (r *mutationResolver) CreateExample(ctx context.Context, englishWord string, sentence string) (*model.Example, error) {
+	// Find the translation by EnglishWord
+	var translation models.Translation
+	if err := database.DB.Where("english_word = ?", englishWord).First(&translation).Error; err != nil {
+		return nil, fmt.Errorf("translation not found: %v", err)
 	}
+
+	// Create the example for the found translation
 	example := models.Example{
-		TranslationID: uint(id),
+		TranslationID: translation.ID,
 		Sentence:      sentence,
 	}
 
@@ -64,41 +68,14 @@ func (r *mutationResolver) CreateExample(ctx context.Context, translationID stri
 	return ToGraphQLExample(&example), nil
 }
 
-// Create
+// CreateWordWithTranslation is the resolver for the createWordWithTranslation field.
 func (r *mutationResolver) CreateWordWithTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Word, error) {
-	word := models.Word{
-		PolishWord: polishWord,
-	}
-
-	if err := database.DB.Create(&word).Error; err != nil {
-		return nil, err
-	}
-
-	if word.ID == 0 {
-		return nil, errors.New("failed to retrieve Word ID after creation")
-	}
-
-	translation := models.Translation{
-		EnglishWord: englishWord,
-		WordID:      word.ID,
-	}
-
-	if err := database.DB.Create(&translation).Error; err != nil {
-		return nil, err
-	}
-	// Preload translations so GraphQL can access them
-	var completeWord models.Word
-	if err := database.DB.Preload("Translations").First(&completeWord, word.ID).Error; err != nil {
-		return nil, err
-	}
-
-	return ToGraphQLWord(&completeWord), nil
+	panic(fmt.Errorf("not implemented: CreateWordWithTranslation - createWordWithTranslation"))
 }
 
 // Words is the resolver for the words field.
 func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
 	var words []*models.Word
-	// Preload translations here
 	if err := database.DB.Preload("Translations").Find(&words).Error; err != nil {
 		return nil, err
 	}
@@ -111,33 +88,41 @@ func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
 	return gqlWords, nil
 }
 
-// In your queryResolver
-func (r *queryResolver) Translations(ctx context.Context, wordID string) ([]*model.Translation, error) {
-	var translations []*model.Translation
-	// Convert the wordID from string to uint (assuming it's stored as uint in the database)
-	wordIDInt, err := strconv.ParseUint(wordID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid wordID: %v", err)
+// Translations retrieves translations by PolishWord.
+func (r *queryResolver) Translations(ctx context.Context, polishWord string) ([]*model.Translation, error) {
+	var word models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		return nil, fmt.Errorf("word not found: %v", err)
 	}
 
-	// Fetch translations related to the wordID
-	if err := database.DB.Where("word_id = ?", wordIDInt).Find(&translations).Error; err != nil {
+	var translations []*models.Translation
+	if err := database.DB.Where("word_id = ?", word.ID).Find(&translations).Error; err != nil {
 		return nil, fmt.Errorf("could not fetch translations: %v", err)
 	}
 
-	return translations, nil
+	var gqlTranslations []*model.Translation
+	for _, translation := range translations {
+		gqlTranslations = append(gqlTranslations, ToGraphQLTranslation(translation))
+	}
+
+	return gqlTranslations, nil
 }
 
-// Examples is the resolver for the examples field.
-func (r *queryResolver) Examples(ctx context.Context, translationID string) ([]*model.Example, error) {
+// Examples retrieves examples by EnglishWord.
+func (r *queryResolver) Examples(ctx context.Context, englishWord string) ([]*model.Example, error) {
+	var translation models.Translation
+	if err := database.DB.Where("english_word = ?", englishWord).First(&translation).Error; err != nil {
+		return nil, fmt.Errorf("translation not found: %v", err)
+	}
+
 	var examples []*models.Example
-	if err := database.DB.Find(&examples).Error; err != nil {
+	if err := database.DB.Where("translation_id = ?", translation.ID).Find(&examples).Error; err != nil {
 		return nil, err
 	}
 
 	var gqlExamples []*model.Example
-	for _, e := range examples {
-		gqlExamples = append(gqlExamples, ToGraphQLExample(e))
+	for _, example := range examples {
+		gqlExamples = append(gqlExamples, ToGraphQLExample(example))
 	}
 
 	return gqlExamples, nil
