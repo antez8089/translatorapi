@@ -6,6 +6,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"translatorapi/database"
@@ -63,10 +64,42 @@ func (r *mutationResolver) CreateExample(ctx context.Context, translationID stri
 	return ToGraphQLExample(&example), nil
 }
 
+// Create
+func (r *mutationResolver) CreateWordWithTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Word, error) {
+	word := models.Word{
+		PolishWord: polishWord,
+	}
+
+	if err := database.DB.Create(&word).Error; err != nil {
+		return nil, err
+	}
+
+	if word.ID == 0 {
+		return nil, errors.New("failed to retrieve Word ID after creation")
+	}
+
+	translation := models.Translation{
+		EnglishWord: englishWord,
+		WordID:      word.ID,
+	}
+
+	if err := database.DB.Create(&translation).Error; err != nil {
+		return nil, err
+	}
+	// Preload translations so GraphQL can access them
+	var completeWord models.Word
+	if err := database.DB.Preload("Translations").First(&completeWord, word.ID).Error; err != nil {
+		return nil, err
+	}
+
+	return ToGraphQLWord(&completeWord), nil
+}
+
 // Words is the resolver for the words field.
 func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
 	var words []*models.Word
-	if err := database.DB.Find(&words).Error; err != nil {
+	// Preload translations here
+	if err := database.DB.Preload("Translations").Find(&words).Error; err != nil {
 		return nil, err
 	}
 

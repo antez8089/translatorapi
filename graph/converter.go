@@ -12,6 +12,16 @@ func ToGraphQLWord(word *models.Word) *model.Word {
 	return &model.Word{
 		ID:         strconv.Itoa(int(word.ID)),  // int na string
 		PolishWord: word.PolishWord,
+		Translations: func() []*model.Translation {
+			// Tworzenie pustej tablicy Translation
+			translations := make([]*model.Translation, 0)
+			// Iteracja po wszystkich Translation
+			for _, t := range word.Translations {
+				// Konwersja Translation na GraphQL Translation
+				translations = append(translations, ToGraphQLTranslation(&t))
+			}
+			return translations
+		}(),
 	}
 }
 
@@ -22,6 +32,16 @@ func ToGraphQLTranslation(t *models.Translation) *model.Translation {
 		ID:          strconv.Itoa(int(t.ID)),   // int na string
 		WordID:      strconv.Itoa(int(t.WordID)), // Konwersja int na string
 		EnglishWord: t.EnglishWord,
+		Examples: func() []*model.Example {
+			// Tworzenie pustej tablicy Example
+			examples := make([]*model.Example, 0)
+			// Iteracja po wszystkich Example
+			for _, e := range t.Examples {
+				// Konwersja Example na GraphQL Example
+				examples = append(examples, ToGraphQLExample(&e))
+			}
+			return examples
+		}(),
 	}
 }
 

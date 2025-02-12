@@ -8,6 +8,7 @@ type Word {
   translations: [Translation!]!
 }
 
+
 type Translation {
   id: ID!
   wordID: ID!
@@ -31,4 +32,6 @@ type Mutation {
   createWord(polishWord: String!): Word!
   createTranslation(wordId: ID!, englishWord: String!): Translation!
   createExample(translationId: ID!, sentence: String!): Example!
+  createWordWithTranslation(polishWord: String!, englishWord: String!): Word!
 }
+
