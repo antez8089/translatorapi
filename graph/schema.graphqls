@@ -23,10 +23,13 @@ type Example {
 }
 
 type Mutation {
-  createWord(polishWord: String!): Word!
-  createTranslation(polishWord: String!, englishWord: String!): Translation!
-  createExample(englishWord: String!, sentence: String!): Example!
-  createWordWithTranslation(polishWord: String!, englishWord: String!): Word!
+  createWord(polishWord: String!, englishWord: String, sentence: String): Word!
+
+  createTranslation(polishWord: String!, englishWord: String!,sentence: String): Translation!
+
+  createExample(polish_word: String!, englishWord: String!, sentence: String!): Example!
+
+
   deleteWord(polishWord: String!): Boolean!
   deleteTranslation(polishWord: String!, englishWord: String!) : Boolean!
   deleteExample(polishWord: String!, englishWord: String!, example_sentence: String!) : Boolean!

@@ -15,7 +15,15 @@ import (
 )
 
 // CreateWord creates a new Polish word.
-func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string) (*model.Word, error) {
+func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string, englishWord *string, sentence *string) (*model.Word, error) {
+	if (englishWord == nil) && (sentence != nil) {
+		return nil, errors.New("sentence cannot be provided without an English word")
+	}
+	var ifAlreadyExists models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&ifAlreadyExists).Error; err == nil {
+		return nil, errors.New("word already exists")
+	}
+
 	word := models.Word{
 		PolishWord: polishWord,
 	}
@@ -23,16 +31,50 @@ func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string) (*
 	if err := database.DB.Create(&word).Error; err != nil {
 		return nil, err
 	}
+	if (englishWord != nil) && (sentence == nil) {
+		translation := models.Translation{
+			EnglishWord: *englishWord,
+			WordID:      word.ID,
+		}
+
+		if err := database.DB.Create(&translation).Error; err != nil {
+			return nil, err
+		}
+
+	} else if (englishWord != nil) && (sentence != nil) {
+		translation := models.Translation{
+			EnglishWord: *englishWord,
+			WordID:      word.ID,
+		}
+		if err := database.DB.Create(&translation).Error; err != nil {
+			return nil, err
+		}
+
+		example := models.Example{
+			Sentence:      *sentence,
+			TranslationID: translation.ID,
+		}
+		if err := database.DB.Create(&example).Error; err != nil {
+			return nil, err
+		}
+
+	}
 
 	return ToGraphQLWord(&word), nil
 }
 
 // CreateTranslation creates a new translation for a word.
-func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Translation, error) {
+func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord string, englishWord string, sentence *string) (*model.Translation, error) {
 	// Find the word by its PolishWord
 	var word models.Word
 	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
 		return nil, fmt.Errorf("word not found: %v", err)
+	}
+
+	// Check if the translation already exists
+	var existingTranslation models.Translation
+	if err := database.DB.Where("english_word = ? AND word_id = ?", englishWord, word.ID).First(&existingTranslation).Error; err == nil {
+		return nil, fmt.Errorf("translation '%s' already exists for this word", englishWord)
 	}
 
 	// Create the translation for the found word
@@ -45,15 +87,36 @@ func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord str
 		return nil, err
 	}
 
+	if sentence != nil {
+		example := models.Example{
+			TranslationID: translation.ID,
+			Sentence:      *sentence,
+		}
+
+		if err := database.DB.Create(&example).Error; err != nil {
+			return nil, err
+		}
+	}
+
 	return ToGraphQLTranslation(&translation), nil
 }
 
 // CreateExample creates a new example sentence for a translation.
-func (r *mutationResolver) CreateExample(ctx context.Context, englishWord string, sentence string) (*model.Example, error) {
-	// Find the translation by EnglishWord
+func (r *mutationResolver) CreateExample(ctx context.Context, polishWord string, englishWord string, sentence string) (*model.Example, error) {
+	var word models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		return nil, err
+	}
+
 	var translation models.Translation
-	if err := database.DB.Where("english_word = ?", englishWord).First(&translation).Error; err != nil {
+	if err := database.DB.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
 		return nil, fmt.Errorf("translation not found: %v", err)
+	}
+
+	// Check if the example already exists
+	var existingExample models.Example
+	if err := database.DB.Where("sentence = ? AND translation_id = ?", sentence, translation.ID).First(&existingExample).Error; err == nil {
+		return nil, fmt.Errorf("example '%s' already exists for this translation", sentence)
 	}
 
 	// Create the example for the found translation
@@ -67,32 +130,6 @@ func (r *mutationResolver) CreateExample(ctx context.Context, englishWord string
 	}
 
 	return ToGraphQLExample(&example), nil
-}
-
-// CreateWordWithTranslation is the resolver for the createWordWithTranslation field.
-func (r *mutationResolver) CreateWordWithTranslation(ctx context.Context, polishWord string, englishWord string) (*model.Word, error) {
-	word := models.Word{
-		PolishWord: polishWord,
-	}
-	if err := database.DB.Create(&word).Error; err != nil {
-		return nil, err
-	}
-	if word.ID == 0 {
-		return nil, errors.New("failed to retrieve Word ID after creation")
-	}
-	translation := models.Translation{
-		EnglishWord: englishWord,
-		WordID:      word.ID,
-	}
-	if err := database.DB.Create(&translation).Error; err != nil {
-		return nil, err
-	}
-	// Preload translations so GraphQL can access them
-	var completeWord models.Word
-	if err := database.DB.Preload("Translations").First(&completeWord, word.ID).Error; err != nil {
-		return nil, err
-	}
-	return ToGraphQLWord(&completeWord), nil
 }
 
 // DeleteWord is the resolver for the deleteWord field.
