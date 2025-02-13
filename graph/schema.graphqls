@@ -29,6 +29,7 @@ type Mutation {
   createWordWithTranslation(polishWord: String!, englishWord: String!): Word!
   deleteWord(polishWord: String!): Boolean!
   deleteTranslation(polishWord: String!, englishWord: String!) : Boolean!
+  deleteExample(polishWord: String!, englishWord: String!, example_sentence: String!) : Boolean!
 }
 
 type Query {

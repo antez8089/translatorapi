@@ -116,10 +116,26 @@ func (r *mutationResolver) DeleteTranslation(ctx context.Context, polishWord str
 	return true, nil
 }
 
+// DeleteExample is the resolver for the deleteExample field.
+func (r *mutationResolver) DeleteExample(ctx context.Context, polishWord string, englishWord string, exampleSentence string) (bool, error) {
+	var word models.Word
+	if err := database.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		return false, err
+	}
+	var translation models.Translation
+	if err := database.DB.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
+		return false, err
+	}
+	if err := database.DB.Where("translation_id = ? AND sentence = ?", translation.ID, exampleSentence).Delete(models.Example{}).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Words is the resolver for the words field.
 func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
 	var words []*models.Word
-	if err := database.DB.Preload("Translations").Find(&words).Error; err != nil {
+	if err := database.DB.Preload("Translations.Examples").Find(&words).Error; err != nil {
 		return nil, err
 	}
 
@@ -139,12 +155,13 @@ func (r *queryResolver) Translations(ctx context.Context, polishWord string) ([]
 	}
 
 	var translations []*models.Translation
-	if err := database.DB.Where("word_id = ?", word.ID).Find(&translations).Error; err != nil {
+	if err := database.DB.Preload("Examples").Where("word_id = ?", word.ID).Find(&translations).Error; err != nil {
 		return nil, fmt.Errorf("could not fetch translations: %v", err)
 	}
 
 	var gqlTranslations []*model.Translation
 	for _, translation := range translations {
+		// Convert translation to GraphQL format
 		gqlTranslations = append(gqlTranslations, ToGraphQLTranslation(translation))
 	}
 
