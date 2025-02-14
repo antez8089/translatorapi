@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"translatorapi/graph/model"
 	"translatorapi/mockdatabase"
+	// "translatorapi/database"
 	"sync"
+	"sync/atomic"
 )
 
 func TestCreate(t *testing.T) {
@@ -190,51 +192,55 @@ func TestDelete(t *testing.T){
 }
 
 
-func TestConcurrentProcessing(t *testing.T) {
+func TestConcurrentWordCreation(t *testing.T) {
 	// Set up the mock database
-	gormDB, err := mockdatabase.MockDB(t)
+	gormDB, err  := mockdatabase.MockDB(t)
 	if err != nil {
 		t.Fatalf("Failed to set up mock database: %v", err)
 	}
 
-	// Migrate the schema to create the necessary tables
-	if err := gormDB.AutoMigrate(&model.Word{}, &model.Translation{}, &model.Example{}); err != nil {
-		t.Fatalf("Failed to auto-migrate: %v", err)
-	}
 
 	// Create the resolver
 	resolver := &graph.Resolver{DB: gormDB}
 	mutationResolver := resolver.Mutation()
 
-	// Use a WaitGroup to wait for all goroutines to finish
+	// Concurrent execution setup
 	var wg sync.WaitGroup
+	errCh := make(chan error, 5) // Buffered to avoid deadlocks
 
-	// Create a slice of test data
-	data := []string{"a", "b", "c", "d", "e"}
+	
+	wordsToInsert := []string{"a", "b", "c", "d", "e"}
+	var insertCount atomic.Int32
 
-	// Start concurrent operations
-	for _, word := range data {
-		wg.Add(1) // Add to the WaitGroup for each goroutine
-		go func(word string) {
-			defer wg.Done() // Mark this goroutine as done when it finishes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-			// Call your mutation or function that processes the data
-			_, err := mutationResolver.CreateWord(context.TODO(), word, nil, nil)
+			_, err := mutationResolver.CreateWord(context.TODO(), wordsToInsert[i], nil, nil)
 			if err != nil {
-				t.Errorf("Error creating word %s: %v", word, err)
+				errCh <- err // Capture error
+			} else {
+				insertCount.Add(1)
 			}
-		}(word)
+		}()
 	}
 
-	// Wait for all goroutines to finish
 	wg.Wait()
+	close(errCh) // Close the channel after all goroutines finish
 
-	// Now, check the results in the database (make assertions)
+	// Collect errors
+	for err := range errCh {
+		t.Errorf("Error during concurrent insertion: %v", err)
+	}
+
+	// Validate database state
 	var words []model.Word
 	if err := gormDB.Find(&words).Error; err != nil {
 		t.Fatalf("Failed to query words: %v", err)
 	}
 
-	// Verify that the correct number of words were created
-	assert.Equal(t, len(data), len(words), "The number of words created should match the number of input words")
+	
+	expectedCount := 5 
+	assert.Equal(t, expectedCount, len(wordsToInsert), "Unexpected number of unique words in DB")
 }

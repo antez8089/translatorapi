@@ -25,6 +25,20 @@ func InitDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Set connection pool options
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get SQL DB object: %w", err)
+	}
+
+	// Set the maximum number of open connections (e.g., 10)
+	sqlDB.SetMaxOpenConns(10)
+	// Set the maximum number of idle connections (e.g., 5)
+	sqlDB.SetMaxIdleConns(5)
+	// Set the maximum connection lifetime (e.g., 1 hour)
+	sqlDB.SetConnMaxLifetime(0)
+
+
 	fmt.Println("Database connected!")
 	return db, nil
 }

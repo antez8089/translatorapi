@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 	"testing"
 	"translatorapi/models"
+	"fmt"
 )
 
 // MockDB ustawia mockową bazę danych z użyciem SQLite
@@ -22,7 +23,19 @@ func MockDB(t *testing.T) (*gorm.DB, error) {
 		t.Fatalf("Failed to enable foreign keys: %v", err)
 	}
 
-	// Możesz dodać dodatkowe dane lub ustawienia, jeśli potrzebujesz
+	// Set connection pool options
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get SQL DB object: %w", err)
+	}
+
+	// Set the maximum number of open connections (e.g., 10)
+	sqlDB.SetMaxOpenConns(1)
+	// Set the maximum number of idle connections (e.g., 5)
+	sqlDB.SetMaxIdleConns(5)
+	// Set the maximum connection lifetime (e.g., 1 hour)
+	sqlDB.SetConnMaxLifetime(0)
+
 
 	return db, nil
 }
