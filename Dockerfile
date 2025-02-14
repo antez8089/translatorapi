@@ -1,4 +1,4 @@
- Use the official Golang image
+Use the official Golang image
 FROM golang:1.21-alpine
 
 # Set environment variables
