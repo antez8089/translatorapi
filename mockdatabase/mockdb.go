@@ -18,6 +18,9 @@ func MockDB(t *testing.T) (*gorm.DB, error) {
 	// Automatycznie migrujemy schemat (przykładowo tabela "words")
 	// Upewnij się, że masz odpowiednie modele zdefiniowane w swojej aplikacji
 	db.AutoMigrate(&models.Word{}, &models.Translation{}, &models.Example{})
+	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+		t.Fatalf("Failed to enable foreign keys: %v", err)
+	}
 
 	// Możesz dodać dodatkowe dane lub ustawienia, jeśli potrzebujesz
 
