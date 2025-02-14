@@ -14,11 +14,16 @@ import (
 
 func main() {
 	// Initialize database connection
-	database.InitDB()
+	db, err  := database.InitDB()
+
+	if err != nil {
+		log.Fatalf("Nie udało się połączyć z bazą danych: %v", err)
+	}
+
 
 	// Set up the GraphQL handler with generated executable schema
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
-		Resolvers: &graph.Resolver{}, // Make sure Resolver is correctly implemented
+		Resolvers: &graph.Resolver{DB: db}, // Make sure Resolver is correctly implemented
 	}))
 
 	// Serve the GraphQL playground at root

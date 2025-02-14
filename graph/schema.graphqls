@@ -38,5 +38,5 @@ type Mutation {
 type Query {
   words: [Word!]!
   translations(polishWord: String!): [Translation!]!
-  examples(englishWord: String!): [Example!]!
+  examples(polishWord: String!, englishWord: String!): [Example!]!
 }

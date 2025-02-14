@@ -62,7 +62,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Examples     func(childComplexity int, englishWord string) int
+		Examples     func(childComplexity int, polishWord string, englishWord string) int
 		Translations func(childComplexity int, polishWord string) int
 		Words        func(childComplexity int) int
 	}
@@ -92,7 +92,7 @@ type MutationResolver interface {
 type QueryResolver interface {
 	Words(ctx context.Context) ([]*model.Word, error)
 	Translations(ctx context.Context, polishWord string) ([]*model.Translation, error)
-	Examples(ctx context.Context, englishWord string) ([]*model.Example, error)
+	Examples(ctx context.Context, polishWord string, englishWord string) ([]*model.Example, error)
 }
 
 type executableSchema struct {
@@ -217,7 +217,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Query.Examples(childComplexity, args["englishWord"].(string)), true
+		return e.complexity.Query.Examples(childComplexity, args["polishWord"].(string), args["englishWord"].(string)), true
 
 	case "Query.translations":
 		if e.complexity.Query.Translations == nil {
@@ -431,7 +431,7 @@ type Mutation {
 type Query {
   words: [Word!]!
   translations(polishWord: String!): [Translation!]!
-  examples(englishWord: String!): [Example!]!
+  examples(polishWord: String!, englishWord: String!): [Example!]!
 }`, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
@@ -766,13 +766,31 @@ func (ec *executionContext) field_Query___type_argsName(
 func (ec *executionContext) field_Query_examples_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Query_examples_argsEnglishWord(ctx, rawArgs)
+	arg0, err := ec.field_Query_examples_argsPolishWord(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["englishWord"] = arg0
+	args["polishWord"] = arg0
+	arg1, err := ec.field_Query_examples_argsEnglishWord(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["englishWord"] = arg1
 	return args, nil
 }
+func (ec *executionContext) field_Query_examples_argsPolishWord(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("polishWord"))
+	if tmp, ok := rawArgs["polishWord"]; ok {
+		return ec.unmarshalNString2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Query_examples_argsEnglishWord(
 	ctx context.Context,
 	rawArgs map[string]any,
@@ -1528,7 +1546,7 @@ func (ec *executionContext) _Query_examples(ctx context.Context, field graphql.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().Examples(rctx, fc.Args["englishWord"].(string))
+		return ec.resolvers.Query().Examples(rctx, fc.Args["polishWord"].(string), fc.Args["englishWord"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
