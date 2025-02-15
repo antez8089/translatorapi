@@ -10,7 +10,7 @@ import (
 func ToGraphQLWord(word *models.Word) *model.Word {
 	// Konwersja int na string, jeśli pole Word.ID jest int
 	return &model.Word{
-		ID:         strconv.Itoa(int(word.ID)),  // int na string
+		ID:         strconv.Itoa(int(word.ID)), // int na string
 		PolishWord: word.PolishWord,
 		Translations: func() []*model.Translation {
 			// Tworzenie pustej tablicy Translation
@@ -29,7 +29,7 @@ func ToGraphQLWord(word *models.Word) *model.Word {
 func ToGraphQLTranslation(t *models.Translation) *model.Translation {
 	// Konwersja int na string, jeśli pole Translation.ID jest int
 	return &model.Translation{
-		ID:          strconv.Itoa(int(t.ID)),   // int na string
+		ID:          strconv.Itoa(int(t.ID)),     // int na string
 		WordID:      strconv.Itoa(int(t.WordID)), // Konwersja int na string
 		EnglishWord: t.EnglishWord,
 		Examples: func() []*model.Example {
@@ -49,7 +49,7 @@ func ToGraphQLTranslation(t *models.Translation) *model.Translation {
 func ToGraphQLExample(e *models.Example) *model.Example {
 	// Konwersja int na string, jeśli pole Example.ID jest int
 	return &model.Example{
-		ID:            strconv.Itoa(int(e.ID)),     // int na string
+		ID:            strconv.Itoa(int(e.ID)),            // int na string
 		TranslationID: strconv.Itoa(int(e.TranslationID)), // int na string
 		Sentence:      e.Sentence,
 	}

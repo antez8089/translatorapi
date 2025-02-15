@@ -32,7 +32,7 @@ func InitDB() (*gorm.DB, error) {
 	}
 
 	// Set the maximum number of open connections (e.g., 10)
-	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxOpenConns(1)
 	// Set the maximum number of idle connections (e.g., 5)
 	sqlDB.SetMaxIdleConns(5)
 	// Set the maximum connection lifetime (e.g., 1 hour)

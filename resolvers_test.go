@@ -10,6 +10,7 @@ import (
 	// "translatorapi/database"
 	"sync"
 	"sync/atomic"
+	"fmt"
 )
 
 func TestCreate(t *testing.T) {
@@ -243,4 +244,66 @@ func TestConcurrentWordCreation(t *testing.T) {
 	
 	expectedCount := 5 
 	assert.Equal(t, expectedCount, len(wordsToInsert), "Unexpected number of unique words in DB")
+}
+
+
+func TestConcurrentWordCreationDuplicates(t *testing.T) {
+	// Set up the mock database
+	gormDB, err := mockdatabase.MockDB(t)
+	if err != nil {
+		t.Fatalf("Failed to set up mock database: %v", err)
+	}
+
+	// Migrate tables
+	if err := gormDB.AutoMigrate(&model.Word{}); err != nil {
+		t.Fatalf("Failed to auto-migrate: %v", err)
+	}
+
+	// Create the resolver
+	resolver := &graph.Resolver{DB: gormDB}
+	mutationResolver := resolver.Mutation()
+
+	// Concurrent execution setup
+	var wg sync.WaitGroup
+	errCh := make(chan error, 10) // Buffered to avoid deadlocks
+
+	// Simulate inserting the same word multiple times
+	word := "test"
+	var insertCount atomic.Int32
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			_, err := mutationResolver.CreateWord(context.TODO(), word, nil, nil)
+			if err != nil {
+				// If the error is because the word already exists, it's expected in concurrent cases.
+				if err.Error() == fmt.Sprintf("word already exists: %s", word) {
+					return // Ignore expected error for duplicates
+				}
+				errCh <- err // Capture error if it's something unexpected
+			} else {
+				insertCount.Add(1)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh) // Close the channel after all goroutines finish
+
+	// Collect errors
+	for err := range errCh {
+		t.Errorf("Error during concurrent insertion: %v", err)
+	}
+
+	// Validate database state
+	var words []model.Word
+	if err := gormDB.Find(&words).Error; err != nil {
+		t.Fatalf("Failed to query words: %v", err)
+	}
+
+	// **Expect only one row if database enforces uniqueness**
+	expectedCount := 1 // Change if duplicates are allowed
+	assert.Equal(t, expectedCount, len(words), "Unexpected number of unique words in DB")
 }

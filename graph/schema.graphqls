@@ -27,12 +27,15 @@ type Mutation {
 
   createTranslation(polishWord: String!, englishWord: String!,sentence: String): Translation!
 
-  createExample(polish_word: String!, englishWord: String!, sentence: String!): Example!
+  createExample(polishWord: String!, englishWord: String!, sentence: String!): Example!
+
+
+  replaceTranslation(polishWord: String!, englishWord: String!, newTranslation: String!): Translation!
 
 
   deleteWord(polishWord: String!): Boolean!
   deleteTranslation(polishWord: String!, englishWord: String!) : Boolean!
-  deleteExample(polishWord: String!, englishWord: String!, example_sentence: String!) : Boolean!
+  deleteExample(polishWord: String!, englishWord: String!, exampleSentence: String!) : Boolean!
 }
 
 type Query {
