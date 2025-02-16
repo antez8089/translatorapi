@@ -87,10 +87,21 @@ Unit tests are implemented in the `graph_test` package using `testing` and `gith
 - `TestCreate` - Tests the creation of words, translations, and examples in a mock database.
 - `TestCreateFull` - Verifies full word insertion with translation and example.
 - `TestDelete` - Ensures words, translations, and examples are deleted correctly.
-- `TestConcurrentWordCreation` - Tests concurrent word insertion to verify race conditions and database consistency.
-- `TestConcurrentWordCreationDuplicates` - Checks that duplicate word creation is handled correctly under concurrent requests.
+- **`TestConcurrentCreateWordMutations`**  
+  Tests concurrent creation of multiple words using mutations to simulate a high-load environment. Verifies that 10 words are successfully created in the database.  
+  - **Details**: Concurrently creates multiple words ("apple", "banana", etc.) and checks if they are inserted correctly.
 
-Each test case initializes an in-memory database using `mockdatabase.MockDB(t)`, that is a conecting user to test postgresql that needs to be initialized before thesting:
+- **`TestConcurrentLocking`**  
+  Tests how the system handles concurrent requests to create the same word multiple times. Ensures that only one word is saved in the database.  
+  - **Details**: Concurrently tries to insert the same word ("a") multiple times and verifies that only one instance is stored in the database.
+
+- **`TestConcurrentTrnaslations`**  
+  Verifies concurrent creation of translations for a word. Tests how the system handles multiple translation insertions at once.  
+  - **Details**: Creates a word ("a") and then inserts translations for it concurrently, verifying that 10 translations are added to the database.
+
+---
+
+Each test case initializes an in-memory database using `mockdatabase.MockDB(t)`, that is a conecting user to test postgresql that needs to be initialized before testing:
 
 sudo docker run --name postgres-test -e POSTGRES_USER=test_user -e POSTGRES_PASSWORD=test_pass -e POSTGRES_DB=translatorapi_test -p 5433:5432 -d postgres
 

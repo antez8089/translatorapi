@@ -37,6 +37,10 @@ After that you need to test by typing:
 go test ./resolvers_test.go
 ```
 
+To end image of test sql:
+```sh
+sudo docker rm postgres-test
+```
 ## Example Queries and Mutations
 
 ### Creating a Word
@@ -311,7 +315,7 @@ query {
 
 #### Request:
 
-```
+```graphql
 mutation{
   createTranslation(polishWord: "a", englishWord: "b"){
     wordID
@@ -323,7 +327,7 @@ mutation{
 
 #### Response:
 
-```
+```json
 {
   "data": {
     "createTranslation": {
@@ -338,7 +342,7 @@ mutation{
 
 
 ### Request:
-```
+```graphql
 mutation{
   replaceTranslation(polish_word: "a", englishWord: "b", newTranslation: "c"){
     id
@@ -350,7 +354,7 @@ mutation{
 
 
 ### Response:
-```
+```json
 {
   "data": {
     "replaceTranslation": {
@@ -366,7 +370,7 @@ mutation{
 ### Check:
 
 ### Request: 
-```
+```graphql
 query {
   words {
     polishWord
@@ -382,7 +386,7 @@ query {
 }
 ```
 ### Response:
-```
+```json
 {
   "data": {
     "words": [

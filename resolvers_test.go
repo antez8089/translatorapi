@@ -297,7 +297,7 @@ func TestConcurrentCreateWordMutations(t *testing.T) {
 	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
 
-func TestConcurrentCreateWordTranslation(t *testing.T) {
+func TestConcurrentLocking(t *testing.T) {
 	// Initialize mock database
 	db, err := mockdatabase.MockDB(t)
 	if err != nil {
