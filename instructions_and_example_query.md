@@ -41,7 +41,12 @@ After that you need to test by typing:
 go test ./resolvers_test.go
 ```
 
-To end image of test sql:
+To close test data base and kill image of test sql:
+
+```sh
+sudo docker stop postgres-test
+```
+
 ```sh
 sudo docker rm postgres-test
 ```
