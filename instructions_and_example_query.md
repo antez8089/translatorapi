@@ -1,5 +1,9 @@
 # Application Instructions
 
+OS: Linux
+
+All instructions bellow asume you are in directory translatorapi
+
 ## Starting the Database
 To start the database, run the following command:
 ```sh
