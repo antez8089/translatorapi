@@ -90,7 +90,11 @@ Unit tests are implemented in the `graph_test` package using `testing` and `gith
 - `TestConcurrentWordCreation` - Tests concurrent word insertion to verify race conditions and database consistency.
 - `TestConcurrentWordCreationDuplicates` - Checks that duplicate word creation is handled correctly under concurrent requests.
 
-Each test case initializes an in-memory database using `mockdatabase.MockDB(t)`, that is a instance of sqlittle memory based db, executes mutations, and verifies the database state to ensure integrity and correctness.
+Each test case initializes an in-memory database using `mockdatabase.MockDB(t)`, that is a conecting user to test postgresql that needs to be initialized before thesting:
+
+sudo docker run --name postgres-test -e POSTGRES_USER=test_user -e POSTGRES_PASSWORD=test_pass -e POSTGRES_DB=translatorapi_test -p 5433:5432 -d postgres
+
+
 
 ---
 

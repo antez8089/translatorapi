@@ -21,6 +21,22 @@ Now you can use the application.
 
 ---
 
+
+
+## Testing
+
+For tresting you need to initialize new database, run docker by:
+
+```sh
+sudo docker run --name postgres-test -e POSTGRES_USER=test_user -e POSTGRES_PASSWORD=test_pass -e POSTGRES_DB=translatorapi_test -p 5433:5432 -d postgres
+
+```
+
+After that you need to test by typing:
+```sh
+go test ./resolvers_test.go
+```
+
 ## Example Queries and Mutations
 
 ### Creating a Word

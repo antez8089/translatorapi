@@ -1,16 +1,23 @@
-package graph_test
+package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"translatorapi/graph"
-	"github.com/stretchr/testify/assert"
+	generated "translatorapi/graph/generated"
 	"translatorapi/graph/model"
 	"translatorapi/mockdatabase"
+	"translatorapi/models"
+
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/stretchr/testify/assert"
 	// "translatorapi/database"
-	"sync"
-	"sync/atomic"
-	"fmt"
 )
 
 func TestCreate(t *testing.T) {
@@ -55,37 +62,31 @@ func TestCreate(t *testing.T) {
 	// Sprawdzamy, czy zwrócone słowo zostało zapisane w bazie
 	assert.Equal(t, 1, len(words))
 
-
-
 	// Tworzymy tłumaczenie
-	translation , err := mutationResolver.CreateTranslation(context.TODO(), "a", "b", nil) 
+	translation, err := mutationResolver.CreateTranslation(context.TODO(), "a", "b", nil)
 	if err != nil {
 		t.Fatalf("CreateTranslation nie powiodło się: %v", err)
 	}
 
 	expectedTranslation := model.Translation{
-		ID:              "1",
-		WordID:          "1",
-		EnglishWord:     "b",
-		Examples: []*model.Example{},
+		ID:          "1",
+		WordID:      "1",
+		EnglishWord: "b",
+		Examples:    []*model.Example{},
 	}
 
 	assert.Equal(t, &expectedTranslation, translation)
 
 	expectedWord.Translations = append(expectedWord.Translations, &expectedTranslation)
 
-
 	// Sprawdzamy zawartość tabeli "words"
 	if err := gormDB.Find(&words).Error; err != nil {
 		t.Fatalf("Nie udało się pobrać danych z tabeli 'words': %v", err)
 	}
 
-	currenword, _ := quadResolver.Words(context.Background()) 
+	currenword, _ := quadResolver.Words(context.Background())
 
 	assert.Equal(t, &expectedWord, currenword[0])
-
-	
-
 
 	// Tworzymy przykład
 	example, err := mutationResolver.CreateExample(context.TODO(), "a", "b", "c")
@@ -94,13 +95,17 @@ func TestCreate(t *testing.T) {
 	}
 
 	expectedExample := model.Example{
-		ID:              "1",
-		TranslationID:   "1",
-		Sentence:        "c",
+		ID:            "1",
+		TranslationID: "1",
+		Sentence:      "c",
 	}
-	
+
 	assert.Equal(t, &expectedExample, example)
-	
+
+	// Clean up the database by truncating all tables
+	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
+
 }
 
 func TestCreateFull(t *testing.T) {
@@ -114,8 +119,6 @@ func TestCreateFull(t *testing.T) {
 	// Tworzymy resolver z wykorzystaniem mockowanej bazy
 	resolver := &graph.Resolver{DB: gormDB}
 	mutationResolver := resolver.Mutation()
-
-
 
 	b := "b"
 	c := "c"
@@ -139,17 +142,19 @@ func TestCreateFull(t *testing.T) {
 
 	if err := gormDB.Find(&examples).Error; err != nil {
 		t.Fatalf("Nie udało się pobrać danych z tabeli 'examples': %v", err)
-	}	
+	}
 	assert.Equal(t, 1, len(examples))
 
 	_, err = mutationResolver.CreateWord(context.TODO(), "a", nil, nil)
 
 	assert.Error(t, err)
-	
+
+	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
+
 }
 
-func TestDelete(t *testing.T){
-	
+func TestDelete(t *testing.T) {
 
 	// Inicjalizujemy bazę danych w pamięci
 	gormDB, err := mockdatabase.MockDB(t)
@@ -164,8 +169,6 @@ func TestDelete(t *testing.T){
 	b := "b"
 	c := "c"
 
-	
-
 	mutationResolver.CreateWord(context.TODO(), "a", &b, &c)
 	mutationResolver.DeleteWord(context.TODO(), "a")
 
@@ -179,9 +182,8 @@ func TestDelete(t *testing.T){
 	var translations []model.Translation
 	if err := gormDB.Find(&translations).Error; err != nil {
 		t.Fatalf("Nie udało się pobrać danych z tabeli 'translations': %v", err)
-	}	
+	}
 	assert.Equal(t, 0, len(translations))
-
 
 	var examples []model.Example
 	if err := gormDB.Find(&examples).Error; err != nil {
@@ -189,121 +191,243 @@ func TestDelete(t *testing.T){
 	}
 	assert.Equal(t, 0, len(examples))
 
+	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 
 }
 
-
-func TestConcurrentWordCreation(t *testing.T) {
-	// Set up the mock database
-	gormDB, err  := mockdatabase.MockDB(t)
+func TestCreateWordMutation(t *testing.T) {
+	// Initialize mock database
+	db, err := mockdatabase.MockDB(t)
 	if err != nil {
-		t.Fatalf("Failed to set up mock database: %v", err)
+		t.Fatalf("Failed to initialize mock database: %v", err)
 	}
 
+	// Create GraphQL server with test database
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: &graph.Resolver{DB: db},
+	}))
 
-	// Create the resolver
-	resolver := &graph.Resolver{DB: gormDB}
-	mutationResolver := resolver.Mutation()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
 
-	// Concurrent execution setup
-	var wg sync.WaitGroup
-	errCh := make(chan error, 5) // Buffered to avoid deadlocks
+	// Prepare GraphQL mutation request
+	query := `{ "query": "mutation { createWord(polishWord: \"a\") { polishWord id } }" }`
+	resp, err := http.Post(ts.URL, "application/json", bytes.NewBuffer([]byte(query)))
+	if err != nil {
+		t.Fatalf("Failed to execute request: %v", err)
+	}
+	defer resp.Body.Close()
 
-	
-	wordsToInsert := []string{"a", "b", "c", "d", "e"}
-	var insertCount atomic.Int32
+	// Check HTTP status
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			_, err := mutationResolver.CreateWord(context.TODO(), wordsToInsert[i], nil, nil)
-			if err != nil {
-				errCh <- err // Capture error
-			} else {
-				insertCount.Add(1)
-			}
-		}()
+	// Parse response body
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	wg.Wait()
-	close(errCh) // Close the channel after all goroutines finish
+	// Verify response contains expected data
+	data, ok := result["data"].(map[string]interface{})
+	assert.True(t, ok, "Response data missing")
 
-	// Collect errors
-	for err := range errCh {
-		t.Errorf("Error during concurrent insertion: %v", err)
+	createWord, ok := data["createWord"].(map[string]interface{})
+	assert.True(t, ok, "createWord response missing")
+	assert.Equal(t, "a", createWord["polishWord"], "Unexpected polishWord value")
+
+	// Verify object was actually saved in the database
+	var word models.Word
+	if err := db.First(&word).Error; err != nil {
+		t.Fatalf("Word not found in database: %v", err)
 	}
+	assert.Equal(t, "a", word.PolishWord, "Unexpected value in database")
 
-	// Validate database state
-	var words []model.Word
-	if err := gormDB.Find(&words).Error; err != nil {
-		t.Fatalf("Failed to query words: %v", err)
-	}
-
-	
-	expectedCount := 5 
-	assert.Equal(t, expectedCount, len(wordsToInsert), "Unexpected number of unique words in DB")
+	// Clean up the database by truncating all tables
+	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
 
-
-func TestConcurrentWordCreationDuplicates(t *testing.T) {
-	// Set up the mock database
-	gormDB, err := mockdatabase.MockDB(t)
+func TestConcurrentCreateWordMutations(t *testing.T) {
+	// Initialize mock database
+	db, err := mockdatabase.MockDB(t)
 	if err != nil {
-		t.Fatalf("Failed to set up mock database: %v", err)
+		t.Fatalf("Failed to initialize mock database: %v", err)
 	}
 
-	// Migrate tables
-	if err := gormDB.AutoMigrate(&model.Word{}); err != nil {
-		t.Fatalf("Failed to auto-migrate: %v", err)
-	}
+	// Create GraphQL server with test database
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: &graph.Resolver{DB: db},
+	}))
 
-	// Create the resolver
-	resolver := &graph.Resolver{DB: gormDB}
-	mutationResolver := resolver.Mutation()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
 
-	// Concurrent execution setup
+	// Prepare GraphQL mutation requests
+	words := []string{"apple", "banana", "cherry", "date", "elderberry", "fig", "grape", "honeydew", "kiwi", "lemon"}
 	var wg sync.WaitGroup
-	errCh := make(chan error, 10) // Buffered to avoid deadlocks
 
-	// Simulate inserting the same word multiple times
-	word := "test"
-	var insertCount atomic.Int32
-
-	for i := 0; i < 10; i++ {
+	for _, word := range words {
 		wg.Add(1)
-		go func() {
+		go func(w string) {
 			defer wg.Done()
-
-			_, err := mutationResolver.CreateWord(context.TODO(), word, nil, nil)
+			query := `{ "query": "mutation { createWord(polishWord: \"` + w + `\") { polishWord id } }" }`
+			resp, err := http.Post(ts.URL, "application/json", bytes.NewBuffer([]byte(query)))
 			if err != nil {
-				// If the error is because the word already exists, it's expected in concurrent cases.
-				if err.Error() == fmt.Sprintf("word already exists: %s", word) {
-					return // Ignore expected error for duplicates
-				}
-				errCh <- err // Capture error if it's something unexpected
-			} else {
-				insertCount.Add(1)
+				t.Errorf("Failed to execute request: %v", err)
+				return
 			}
-		}()
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		}(word)
 	}
 
 	wg.Wait()
-	close(errCh) // Close the channel after all goroutines finish
 
-	// Collect errors
-	for err := range errCh {
-		t.Errorf("Error during concurrent insertion: %v", err)
+	// Verify that 10 words were actually saved in the database
+	var count int64
+	if err := db.Model(&models.Word{}).Count(&count).Error; err != nil {
+		t.Fatalf("Failed to count words in database: %v", err)
+	}
+	assert.Equal(t, int64(10), count, "Unexpected number of words in database")
+
+	// Clean up the database by truncating all tables
+	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
+}
+
+func TestConcurrentCreateWordTranslation(t *testing.T) {
+	// Initialize mock database
+	db, err := mockdatabase.MockDB(t)
+	if err != nil {
+		t.Fatalf("Failed to initialize mock database: %v", err)
 	}
 
-	// Validate database state
-	var words []model.Word
-	if err := gormDB.Find(&words).Error; err != nil {
-		t.Fatalf("Failed to query words: %v", err)
+	// Create GraphQL server with test database
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: &graph.Resolver{DB: db},
+	}))
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Prepare GraphQL mutation requests
+	words := []string{"a", "a", "a", "a", "a", "a", "a", "a", "a", "a"}
+	var wg sync.WaitGroup
+
+	for _, word := range words {
+		wg.Add(1)
+		go func(w string) {
+			defer wg.Done()
+			query := `{ "query": "mutation { createWord(polishWord: \"` + w + `\") { polishWord id } }" }`
+			resp, err := http.Post(ts.URL, "application/json", bytes.NewBuffer([]byte(query)))
+			if err != nil {
+				t.Errorf("Failed to execute request: %v", err)
+				return
+			}
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		}(word)
 	}
 
-	// **Expect only one row if database enforces uniqueness**
-	expectedCount := 1 // Change if duplicates are allowed
-	assert.Equal(t, expectedCount, len(words), "Unexpected number of unique words in DB")
+	wg.Wait()
+
+	// Verify that 10 words were actually saved in the database
+	var count int64
+	if err := db.Model(&models.Word{}).Count(&count).Error; err != nil {
+		t.Fatalf("Failed to count words in database: %v", err)
+	}
+	assert.Equal(t, int64(1), count, "Unexpected number of words in database")
+
+	// Clean up the database by truncating all tables
+	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
+}
+
+func TestConcurrentTrnaslations(t *testing.T) {
+	// Initialize mock database
+	db, err := mockdatabase.MockDB(t)
+	if err != nil {
+		t.Fatalf("Failed to initialize mock database: %v", err)
+	}
+
+	// Create GraphQL server with test database
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: &graph.Resolver{DB: db},
+	}))
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Prepare GraphQL mutation request for creating the word
+	query := `{ "query": "mutation { createWord(polishWord: \"a\") { polishWord id } }" }`
+	resp, err := http.Post(ts.URL, "application/json", bytes.NewBuffer([]byte(query)))
+	if err != nil {
+		t.Fatalf("Failed to execute request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check HTTP status for creating the word
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Parse response body
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Verify response contains expected data for creating the word
+	data, ok := result["data"].(map[string]interface{})
+	assert.True(t, ok, "Response data missing")
+
+	createWord, ok := data["createWord"].(map[string]interface{})
+	assert.True(t, ok, "createWord response missing")
+	assert.Equal(t, "a", createWord["polishWord"], "Unexpected polishWord value")
+
+	// Verify object was actually saved in the database
+	var word models.Word
+	if err := db.First(&word).Error; err != nil {
+		t.Fatalf("Word not found in database: %v", err)
+	}
+	assert.Equal(t, "a", word.PolishWord, "Unexpected value in database")
+
+	// Prepare GraphQL Translations
+
+	// Prepare GraphQL mutation requests
+	words := []string{"b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}
+	var wg sync.WaitGroup
+
+	for _, word := range words {
+		wg.Add(1)
+		go func(w string) {
+			defer wg.Done()
+			// Properly format the query using fmt.Sprintf
+			query := fmt.Sprintf(`{ "query": "mutation { createTranslation(polishWord: \"a\", englishWord:\"%s\") { id wordID englishWord } }" }`, w)
+			resp, err := http.Post(ts.URL, "application/json", bytes.NewBuffer([]byte(query)))
+			if err != nil {
+				t.Errorf("Failed to execute request: %v", err)
+				return
+			}
+			defer resp.Body.Close()
+
+			// Check HTTP status for each translation mutation
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		}(word)
+	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+
+	// Verify that 10 translations were added to the database
+	var count int64
+	if err := db.Model(&models.Translation{}).Count(&count).Error; err != nil {
+		t.Fatalf("Failed to count words in database: %v", err)
+	}
+	assert.Equal(t, int64(10), count, "Unexpected number of translations in database")
+
+	// Clean up the database by truncating all tables
+	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
+	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
