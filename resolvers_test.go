@@ -333,7 +333,7 @@ func TestConcurrentLocking(t *testing.T) {
 	defer ts.Close()
 
 	// Prepare GraphQL mutation requests
-	words := []string{"a", "a", "a", "a", "b", "b", "a", "b", "b", "a"}
+	words := []string{"a", "a", "a", "a", "b", "b", "a", "b", "b", "a", "a", "a", "a", "a", "b", "b", "a", "b", "b", "a"}
 	var wg sync.WaitGroup
 
 	for _, word := range words {

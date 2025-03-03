@@ -202,50 +202,67 @@ func (r *mutationResolver) CreateExample(ctx context.Context, polishWord string,
 }
 
 func (r *mutationResolver) ReplaceTranslation(ctx context.Context, polishWord string, englishWord string, newTranslation string) (*model.Translation, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	var translation models.Translation
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+		// Find the word by its PolishWord
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("word not found: %v", err)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-	}()
 
-	// Find the word by its PolishWord
-	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return nil, fmt.Errorf("word not found: %v", err)
-	}
+		if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).Delete(models.Translation{}).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Create the translation for the found word
+				translation := models.Translation{
+					WordID:      word.ID,
+					EnglishWord: newTranslation,
+				}
 
-	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).Delete(models.Translation{}).Error; err != nil {
+				result := tx.Where(&translation).FirstOrCreate(&translation)
+
+				// If there was an error
+				if result.Error != nil {
+					return fmt.Errorf("failed to create translation: %v", result.Error)
+				}
+
+				// No error, check if the word was created or already existed
+				if result.RowsAffected == 0 {
+					// No rows were affected, meaning the word already existed
+					return fmt.Errorf("translation already exists: %s", newTranslation)
+				}
+				return nil
+
+			}
+			return fmt.Errorf("operation unsucesfull: %w", err)
+		}
+
 		// Create the translation for the found word
-		translation := models.Translation{
+		translation = models.Translation{
 			WordID:      word.ID,
 			EnglishWord: newTranslation,
 		}
 
-		if err := tx.Create(&translation).Error; err != nil {
-			return nil, err
+		result := tx.Where(&translation).FirstOrCreate(&translation)
+
+		// If there was an error
+		if result.Error != nil {
+			return fmt.Errorf("failed to create translation: %v", result.Error)
 		}
-		return ToGraphQLTranslation(&translation), fmt.Errorf("nothing to replace, added new: %w", err)
-	}
 
-	// Create the translation for the found word
-	translation := models.Translation{
-		WordID:      word.ID,
-		EnglishWord: newTranslation,
-	}
+		// No error, check if the word was created or already existed
+		if result.RowsAffected == 0 {
+			// No rows were affected, meaning the word already existed
+			return fmt.Errorf("translation already exists: %s", newTranslation)
+		}
+		return nil
+	})
 
-	if err := tx.Create(&translation).Error; err != nil {
-		return nil, fmt.Errorf("operation unsucesfull: %w", err)
-	}
-
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
+	if err != nil {
+		return nil, err // triggers rollback
 	}
 
 	return ToGraphQLTranslation(&translation), nil
@@ -343,20 +360,9 @@ func (r *mutationResolver) DeleteExample(ctx context.Context, polishWord string,
 
 // Words is the resolver for the words field.
 func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
-
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
 
 	var words []*models.Word
-	if err := tx.Preload("Translations.Examples").Find(&words).Error; err != nil {
+	if err := r.DB.Preload("Translations.Examples").Find(&words).Error; err != nil {
 		return nil, err
 	}
 
@@ -365,35 +371,22 @@ func (r *queryResolver) Words(ctx context.Context) ([]*model.Word, error) {
 		gqlWords = append(gqlWords, ToGraphQLWord(word))
 	}
 
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
-	}
-
 	return gqlWords, nil
 }
 
 // Translations retrieves translations by PolishWord.
 func (r *queryResolver) Translations(ctx context.Context, polishWord string) ([]*model.Translation, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
-
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
 
 	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return nil, fmt.Errorf("word not found: %v", err)
+	if err := r.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("word not found: %s", polishWord)
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	var translations []*models.Translation
-	if err := tx.Preload("Examples").Where("word_id = ?", word.ID).Find(&translations).Error; err != nil {
+	if err := r.DB.Preload("Examples").Where("word_id = ?", word.ID).Find(&translations).Error; err != nil {
 		return nil, fmt.Errorf("could not fetch translations: %v", err)
 	}
 
@@ -402,50 +395,37 @@ func (r *queryResolver) Translations(ctx context.Context, polishWord string) ([]
 		// Convert translation to GraphQL format
 		gqlTranslations = append(gqlTranslations, ToGraphQLTranslation(translation))
 	}
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
-	}
 
 	return gqlTranslations, nil
 }
 
 // Examples retrieves examples by EnglishWord.
 func (r *queryResolver) Examples(ctx context.Context, polishWord string, englishWord string) ([]*model.Example, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
-
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
 
 	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return nil, fmt.Errorf("word not found: %v", err)
+	if err := r.DB.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("word not found: %v", err)
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	var translation models.Translation
-	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
-		return nil, err
+	if err := r.DB.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	var examples []*models.Example
-	if err := tx.Where("translation_id = ?", translation.ID).Find(&examples).Error; err != nil {
+	if err := r.DB.Where("translation_id = ?", translation.ID).Find(&examples).Error; err != nil {
 		return nil, err
 	}
 
 	var gqlExamples []*model.Example
 	for _, example := range examples {
 		gqlExamples = append(gqlExamples, ToGraphQLExample(example))
-	}
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
 	}
 
 	return gqlExamples, nil
