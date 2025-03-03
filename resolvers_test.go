@@ -16,7 +16,11 @@ import (
 	"translatorapi/models"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/stretchr/testify/assert"
+	"github.com/vektah/gqlparser/v2/ast"
 	// "translatorapi/database"
 )
 
@@ -102,8 +106,6 @@ func TestCreate(t *testing.T) {
 
 	assert.Equal(t, &expectedExample, example)
 
-	// Clean up the database by truncating all tables
-	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 
 }
@@ -149,7 +151,6 @@ func TestCreateFull(t *testing.T) {
 
 	assert.Error(t, err)
 
-	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 
 }
@@ -191,7 +192,6 @@ func TestDelete(t *testing.T) {
 	}
 	assert.Equal(t, 0, len(examples))
 
-	gormDB.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	gormDB.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 
 }
@@ -204,10 +204,18 @@ func TestCreateWordMutation(t *testing.T) {
 	}
 
 	// Create GraphQL server with test database
-	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
-		Resolvers: &graph.Resolver{DB: db},
-	}))
+	srv := handler.New(generated.NewExecutableSchema(generated.Config{Resolvers: &graph.Resolver{DB: db}}))
 
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+
+	srv.Use(extension.Introspection{})
+	srv.Use(extension.AutomaticPersistedQuery{
+		Cache: lru.New[string](100),
+	})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -243,8 +251,6 @@ func TestCreateWordMutation(t *testing.T) {
 	}
 	assert.Equal(t, "a", word.PolishWord, "Unexpected value in database")
 
-	// Clean up the database by truncating all tables
-	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
 
@@ -256,10 +262,18 @@ func TestConcurrentCreateWordMutations(t *testing.T) {
 	}
 
 	// Create GraphQL server with test database
-	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
-		Resolvers: &graph.Resolver{DB: db},
-	}))
+	srv := handler.New(generated.NewExecutableSchema(generated.Config{Resolvers: &graph.Resolver{DB: db}}))
 
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+
+	srv.Use(extension.Introspection{})
+	srv.Use(extension.AutomaticPersistedQuery{
+		Cache: lru.New[string](100),
+	})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -292,8 +306,6 @@ func TestConcurrentCreateWordMutations(t *testing.T) {
 	}
 	assert.Equal(t, int64(10), count, "Unexpected number of words in database")
 
-	// Clean up the database by truncating all tables
-	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
 
@@ -305,15 +317,23 @@ func TestConcurrentLocking(t *testing.T) {
 	}
 
 	// Create GraphQL server with test database
-	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
-		Resolvers: &graph.Resolver{DB: db},
-	}))
+	srv := handler.New(generated.NewExecutableSchema(generated.Config{Resolvers: &graph.Resolver{DB: db}}))
 
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+
+	srv.Use(extension.Introspection{})
+	srv.Use(extension.AutomaticPersistedQuery{
+		Cache: lru.New[string](100),
+	})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
 	// Prepare GraphQL mutation requests
-	words := []string{"a", "a", "a", "a", "a", "a", "a", "a", "a", "a"}
+	words := []string{"a", "a", "a", "a", "b", "b", "a", "b", "b", "a"}
 	var wg sync.WaitGroup
 
 	for _, word := range words {
@@ -339,10 +359,8 @@ func TestConcurrentLocking(t *testing.T) {
 	if err := db.Model(&models.Word{}).Count(&count).Error; err != nil {
 		t.Fatalf("Failed to count words in database: %v", err)
 	}
-	assert.Equal(t, int64(1), count, "Unexpected number of words in database")
+	assert.Equal(t, int64(2), count, "Unexpected number of words in database")
 
-	// Clean up the database by truncating all tables
-	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }
 
@@ -427,7 +445,5 @@ func TestConcurrentTrnaslations(t *testing.T) {
 	}
 	assert.Equal(t, int64(10), count, "Unexpected number of translations in database")
 
-	// Clean up the database by truncating all tables
-	db.Exec("SET CONSTRAINTS ALL IMMEDIATE;")
 	db.Exec("TRUNCATE words, translations, examples RESTART IDENTITY CASCADE;")
 }

@@ -5,5 +5,5 @@ package models
 type Example struct {
 	ID         uint   `gorm:"primaryKey"`
 	TranslationID uint        `gorm:"not null;index"`
-	Sentence      string      `gorm:"not null"`
+	Sentence      string      `gorm:"unique;not null"`
 }

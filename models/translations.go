@@ -5,6 +5,6 @@ package models
 type Translation struct {
 	ID         uint   `gorm:"primaryKey"`
 	WordID      uint        `gorm:"not null;index"`
-	EnglishWord string      `gorm:"not null"`
+	EnglishWord string      `gorm:"unique;not null"`
 	Examples    []Example   `gorm:"foreignKey:TranslationID;constraint:OnDelete:CASCADE"`
 }

@@ -9,6 +9,7 @@ import (
 	"translatorapi/graph/model"
 	"translatorapi/models"
 
+	// "github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -18,57 +19,49 @@ type Resolver struct {
 
 // CreateWord creates a new Polish word.
 func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string, englishWord *string, sentence *string) (*model.Word, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	var word models.Word
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
+		word = models.Word{PolishWord: polishWord}
 
-	// Ensure the word doesn't already exist
-	var ifAlreadyExists models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&ifAlreadyExists).Error; err == nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("word already exists: %s", polishWord)
-	}
+		result := tx.Where(&word).FirstOrCreate(&word)
 
-	// Proceed to insert the new word
-	word := models.Word{PolishWord: polishWord}
-	if err := tx.Create(&word).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if englishWord != nil {
-		translation := models.Translation{
-			EnglishWord: *englishWord,
-			WordID:      word.ID,
-		}
-		if err := tx.Create(&translation).Error; err != nil {
-			tx.Rollback()
-			return nil, err
+		// If there was an error
+		if result.Error != nil {
+			return fmt.Errorf("failed to create word: %v", result.Error)
 		}
 
-		if sentence != nil {
-			example := models.Example{
-				Sentence:      *sentence,
-				TranslationID: translation.ID,
+		// No error, check if the word was created or already existed
+		if result.RowsAffected == 0 {
+			// No rows were affected, meaning the word already existed
+			return fmt.Errorf("word already exists: %s", polishWord)
+		}
+		// Optionally add translation and example
+		if englishWord != nil {
+			translation := models.Translation{
+				EnglishWord: *englishWord,
+				WordID:      word.ID,
 			}
-			if err := tx.Create(&example).Error; err != nil {
-				tx.Rollback()
-				return nil, err
+			if err := tx.Create(&translation).Error; err != nil {
+				return err
+			}
+
+			if sentence != nil {
+				example := models.Example{
+					Sentence:      *sentence,
+					TranslationID: translation.ID,
+				}
+				if err := tx.Create(&example).Error; err != nil {
+					return err
+				}
 			}
 		}
-	}
 
-	// Commit the transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
+		return nil // triggers commit
+	})
+
+	if err != nil {
+		return nil, err // triggers rollback
 	}
 
 	return ToGraphQLWord(&word), nil
@@ -76,54 +69,64 @@ func (r *mutationResolver) CreateWord(ctx context.Context, polishWord string, en
 
 // CreateTranslation creates a new translation for a word.
 func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord string, englishWord string, sentence *string) (*model.Translation, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	var translation models.Translation
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Find the word by its PolishWord
-	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return nil, fmt.Errorf("word not found: %v", err)
-	}
-
-	// Check if the translation already exists
-	var existingTranslation models.Translation
-	if err := tx.Where("english_word = ? AND word_id = ?", englishWord, word.ID).First(&existingTranslation).Error; err == nil {
-		return nil, fmt.Errorf("translation '%s' already exists for this word", englishWord)
-	}
-
-	// Create the translation for the found word
-	translation := models.Translation{
-		WordID:      word.ID,
-		EnglishWord: englishWord,
-	}
-
-	if err := tx.Create(&translation).Error; err != nil {
-		return nil, err
-	}
-
-	if sentence != nil {
-		example := models.Example{
-			TranslationID: translation.ID,
-			Sentence:      *sentence,
+		// Find the word by its PolishWord
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("polish word not found: %s", polishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
 
-		if err := tx.Create(&example).Error; err != nil {
-			return nil, err
-		}
-	}
+		// // Check if the translation already exists
+		// var existingTranslation models.Translation
+		// if err := tx.Where("english_word = ? AND word_id = ?", englishWord, word.ID).First(&existingTranslation).Error; err != nil {
+		// 	fmt.Println(err)
+		// 	if err == gorm.ErrRecordNotFound {
+		// 		return  fmt.Errorf("translation '%s' already exists for this word", englishWord)
+		// 	}
+		// 	return  fmt.Errorf("an error occurred: %v", err)
+		// }
 
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
+		// Create the translation for the found word
+		translation = models.Translation{
+			WordID:      word.ID,
+			EnglishWord: englishWord,
+		}
+
+		result := tx.Where(&translation).FirstOrCreate(&translation)
+
+		// If there was an error
+		if result.Error != nil {
+			return fmt.Errorf("failed to create word: %v", result.Error)
+		}
+
+		// No error, check if the word was created or already existed
+		if result.RowsAffected == 0 {
+			// No rows were affected, meaning the word already existed
+			return fmt.Errorf("translation already exists: %s", englishWord)
+		}
+
+		if sentence != nil {
+			example := models.Example{
+				TranslationID: translation.ID,
+				Sentence:      *sentence,
+			}
+
+			if err := tx.Create(&example).Error; err != nil {
+				return err
+			}
+		}
+
+
+		return nil // triggers commit
+	})
+
+	if err != nil {
+		return nil, err // triggers rollback
 	}
 
 	return ToGraphQLTranslation(&translation), nil
@@ -145,18 +148,27 @@ func (r *mutationResolver) CreateExample(ctx context.Context, polishWord string,
 
 	var word models.Word
 	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return nil, err
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("polish word not found: %s", polishWord)
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	var translation models.Translation
 	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
-		return nil, fmt.Errorf("translation not found: %v", err)
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("translation not found: %v", err)
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	// Check if the example already exists
 	var existingExample models.Example
 	if err := tx.Where("sentence = ? AND translation_id = ?", sentence, translation.ID).First(&existingExample).Error; err == nil {
-		return nil, fmt.Errorf("example '%s' already exists for this translation", sentence)
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("example '%s' already exists for this translation", sentence)
+		}
+		return nil, fmt.Errorf("an error occurred: %v", err)
 	}
 
 	// Create the example for the found translation
@@ -165,8 +177,17 @@ func (r *mutationResolver) CreateExample(ctx context.Context, polishWord string,
 		Sentence:      sentence,
 	}
 
-	if err := tx.Create(&example).Error; err != nil {
-		return nil, err
+	result := tx.Where(&example).FirstOrCreate(&example)
+
+	// If there was an error
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to create example: %v", result.Error)
+	}
+
+	// No error, check if the word was created or already existed
+	if result.RowsAffected == 0 {
+		// No rows were affected, meaning the word already existed
+		return nil, fmt.Errorf("example already exists: %s", sentence)
 	}
 
 	// Everything succeeded, commit transaction
