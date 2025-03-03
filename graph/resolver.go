@@ -121,7 +121,6 @@ func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord str
 			}
 		}
 
-
 		return nil // triggers commit
 	})
 
@@ -134,65 +133,69 @@ func (r *mutationResolver) CreateTranslation(ctx context.Context, polishWord str
 
 // CreateExample creates a new example sentence for a translation.
 func (r *mutationResolver) CreateExample(ctx context.Context, polishWord string, englishWord string, sentence string) (*model.Example, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return nil, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	var example models.Example
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+		if tx.Error != nil {
+			return fmt.Errorf("could not begin transaction: %w", tx.Error)
 		}
-	}()
 
-	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("polish word not found: %s", polishWord)
+		// Ensure rollback in case of panic
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("polish word not found: %s", polishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-		return nil, fmt.Errorf("an error occurred: %v", err)
-	}
 
-	var translation models.Translation
-	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("translation not found: %v", err)
+		var translation models.Translation
+		if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("translation maching polish word not found: %s", englishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-		return nil, fmt.Errorf("an error occurred: %v", err)
-	}
 
-	// Check if the example already exists
-	var existingExample models.Example
-	if err := tx.Where("sentence = ? AND translation_id = ?", sentence, translation.ID).First(&existingExample).Error; err == nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("example '%s' already exists for this translation", sentence)
+		// // Check if the example already exists
+		// var existingExample models.Example
+		// if err := tx.Where("sentence = ? AND translation_id = ?", sentence, translation.ID).First(&existingExample).Error; err == nil {
+		// 	if err == gorm.ErrRecordNotFound {
+		// 		return fmt.Errorf("example '%s' already exists for this translation", sentence)
+		// 	}
+		// 	return fmt.Errorf("an error occurred: %v", err)
+		// }
+
+		// Create the example for the found translation
+		example = models.Example{
+			TranslationID: translation.ID,
+			Sentence:      sentence,
 		}
-		return nil, fmt.Errorf("an error occurred: %v", err)
-	}
 
-	// Create the example for the found translation
-	example := models.Example{
-		TranslationID: translation.ID,
-		Sentence:      sentence,
-	}
+		result := tx.Where(&example).FirstOrCreate(&example)
 
-	result := tx.Where(&example).FirstOrCreate(&example)
+		// If there was an error
+		if result.Error != nil {
+			return fmt.Errorf("failed to create example: %v", result.Error)
+		}
 
-	// If there was an error
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to create example: %v", result.Error)
-	}
+		// No error, check if the word was created or already existed
+		if result.RowsAffected == 0 {
+			// No rows were affected, meaning the word already existed
+			return fmt.Errorf("example already exists: %s", sentence)
+		}
 
-	// No error, check if the word was created or already existed
-	if result.RowsAffected == 0 {
-		// No rows were affected, meaning the word already existed
-		return nil, fmt.Errorf("example already exists: %s", sentence)
-	}
+		return nil
+	})
 
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("transaction commit failed: %w", err)
+	if err != nil {
+		return nil, err // triggers rollback
 	}
 
 	return ToGraphQLExample(&example), nil
