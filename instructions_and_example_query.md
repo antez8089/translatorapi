@@ -7,7 +7,7 @@ All instructions bellow asume you are in directory translatorapi
 ## Starting the Database
 To start the database, run the following command:
 ```sh
-sudo docker-compose up
+sudo sudo docker-compose -f docker-compose.yml up
 ```
 
 ## Starting the Server
@@ -32,7 +32,7 @@ Now you can use the application.
 For tresting you need to initialize new database, run docker by:
 
 ```sh
-sudo docker run --name postgres-test -e POSTGRES_USER=test_user -e POSTGRES_PASSWORD=test_pass -e POSTGRES_DB=translatorapi_test -p 5433:5432 -d postgres
+sudo sudo docker-compose -f docker-compose-test.yml up
 
 ```
 
@@ -41,15 +41,6 @@ After that you need to test by typing:
 go test ./resolvers_test.go
 ```
 
-To close test data base and kill image of test sql:
-
-```sh
-sudo docker stop postgres-test
-```
-
-```sh
-sudo docker rm postgres-test
-```
 ## Example Queries and Mutations
 
 ### Creating a Word
