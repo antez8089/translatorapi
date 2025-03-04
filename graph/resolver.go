@@ -271,25 +271,26 @@ func (r *mutationResolver) ReplaceTranslation(ctx context.Context, polishWord st
 
 // DeleteWord is the resolver for the deleteWord field.
 func (r *mutationResolver) DeleteWord(ctx context.Context, polishWord string) (bool, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return false, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("word not found: %s", polishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-	}()
 
-	if err := tx.Where("polish_word = ?", polishWord).Delete(&models.Word{}).Error; err != nil {
-		return false, err
-	}
+		if err := tx.Where("polish_word = ?", polishWord).Delete(&models.Word{}).Error; err != nil {
+			return err
+		}
 
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return false, fmt.Errorf("transaction commit failed: %w", err)
+		return nil
+
+	})
+
+	if err != nil {
+		return false, err // triggers rollback
 	}
 
 	return true, nil
@@ -297,29 +298,34 @@ func (r *mutationResolver) DeleteWord(ctx context.Context, polishWord string) (b
 
 // DeleteTranslation is the resolver for the deleteTranslation field.
 func (r *mutationResolver) DeleteTranslation(ctx context.Context, polishWord string, englishWord string) (bool, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return false, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("word not found: %s", polishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-	}()
 
-	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return false, err
-	}
-	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).Delete(models.Translation{}).Error; err != nil {
-		return false, err
-	}
+		var translation models.Translation
+		if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("translation not found: %s", englishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
+		}
 
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return false, fmt.Errorf("transaction commit failed: %w", err)
+		if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).Delete(models.Translation{}).Error; err != nil {
+			return err
+		}
+
+		return nil
+
+	})
+
+	if err != nil {
+		return false, err // triggers rollback
 	}
 
 	return true, nil
@@ -327,32 +333,40 @@ func (r *mutationResolver) DeleteTranslation(ctx context.Context, polishWord str
 
 // DeleteExample is the resolver for the deleteExample field.
 func (r *mutationResolver) DeleteExample(ctx context.Context, polishWord string, englishWord string, exampleSentence string) (bool, error) {
-	tx := r.DB.Begin()
-	if tx.Error != nil {
-		return false, fmt.Errorf("could not begin transaction: %w", tx.Error)
-	}
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 
-	// Ensure rollback in case of panic
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+		var word models.Word
+		if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("word not found: %s", polishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
 		}
-	}()
 
-	var word models.Word
-	if err := tx.Where("polish_word = ?", polishWord).First(&word).Error; err != nil {
-		return false, err
-	}
-	var translation models.Translation
-	if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
-		return false, err
-	}
-	if err := tx.Where("translation_id = ? AND sentence = ?", translation.ID, exampleSentence).Delete(models.Example{}).Error; err != nil {
-		return false, err
-	}
-	// Everything succeeded, commit transaction
-	if err := tx.Commit().Error; err != nil {
-		return false, fmt.Errorf("transaction commit failed: %w", err)
+		var translation models.Translation
+		if err := tx.Where("word_id = ? AND english_word = ?", word.ID, englishWord).First(&translation).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("translation not found: %s", englishWord)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
+		}
+
+		var example models.Example
+		if err := tx.Where("translation_id = ? AND sentence = ?", translation.ID, exampleSentence).First(&example).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("example not found: %s", exampleSentence)
+			}
+			return fmt.Errorf("an error occurred: %v", err)
+		}
+
+		if err := tx.Where("translation_id = ? AND sentence = ?", translation.ID, exampleSentence).Delete(models.Example{}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return false, err // triggers rollback
 	}
 
 	return true, nil
